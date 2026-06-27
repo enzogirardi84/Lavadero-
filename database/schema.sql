@@ -179,4 +179,30 @@ INSERT INTO caja_movimientos (caja_id, tipo, monto, descripcion) VALUES
 (1, 'EGRESO', 1200.00, 'Compra de esponjas y trapos de microfibra extra'),
 (1, 'INGRESO', 1500.00, 'Aporte cambio monedas inicial');
 
+-- 13. Tabla de Usuarios (Autenticación y Roles)
+CREATE TABLE usuarios (
+    id_usuario SERIAL PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    apellido VARCHAR(100) DEFAULT '',
+    rol VARCHAR(50) NOT NULL,
+    pin VARCHAR(10) DEFAULT NULL,
+    activo BOOLEAN DEFAULT TRUE,
+    mail VARCHAR(150) DEFAULT NULL,
+    contrasena VARCHAR(150) DEFAULT NULL,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    password VARCHAR(150) NOT NULL
+);
+
+INSERT INTO usuarios (nombre, apellido, rol, pin, activo, mail, contrasena, username, password) VALUES
+('Super Admin', '', 'superadmin', '1234', TRUE, 'super@admi.com', 'superadmi2026/', 'super@admi.com', 'superadmi2026/'),
+('Administrador', '', 'administrador', '1234', TRUE, 'admi@patron.com', 'Elpatron2026/', 'admi@patron.com', 'Elpatron2026/'),
+('Mozo', '', 'mozo', NULL, TRUE, NULL, NULL, 'mozo@patron.com', 'Elpatronmozo2026/'),
+('Enzo', 'Fernández', 'mozo', NULL, TRUE, NULL, NULL, 'enzo', '1234'),
+('Micaela', 'Gómez', 'mozo', NULL, TRUE, NULL, NULL, 'micaela', '1234'),
+('Damián', 'Martínez', 'cocina', NULL, TRUE, NULL, NULL, 'damian', '1234'),
+('Sofía', 'Alegre', 'administrador', NULL, TRUE, NULL, NULL, 'sofia', '1234'),
+('Nuevo', 'Usuario', 'mozo', NULL, TRUE, NULL, NULL, 'nuevo', 'clave'),
+('Admin', '', 'superadmin', NULL, TRUE, NULL, NULL, 'admin', '1998');
+
+
 
