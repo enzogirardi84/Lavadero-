@@ -1,150 +1,168 @@
 import os
+import random
+import string
 import pandas as pd
-from fastapi import FastAPI
+from datetime import datetime, timedelta
+from fastapi import FastAPI, HTTPException, status, Query
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text
 
 app = FastAPI(
-    title="Lavadero Car Wash - API de Analítica de Marketing",
-    description="Microservicio Python para segmentación y analítica de clientes utilizando Pandas y SQLAlchemy.",
-    version="1.0.0"
+    title="Lavadero Car Wash - API Serverless de Gestión",
+    description="Microservicio Python para gestión y analítica de datos conectado a Supabase PostgreSQL.",
+    version="2.0.0"
+)
+
+# Habilitar CORS para peticiones directas desde el navegador
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Configuración de base de datos
 DB_URL = os.getenv("DATABASE_URL", f"postgresql://postgres:{os.getenv('SUPABASE_DB_PASSWORD', 'postgres')}@db.sqczmyaoqplrmrgyczjy.supabase.co:5432/postgres")
 
-def get_customer_data_from_db():
+def execute_query(query: str, params: dict = None, fetch_all: bool = False, fetch_one: bool = False):
     """
-    Intenta obtener los clientes y sus consumos consolidados desde la base de datos PostgreSQL.
-    Si la base de datos no está disponible, devuelve un DataFrame con datos simulados y un indicador de fallback.
+    Función helper para ejecutar consultas en la base de datos Supabase.
     """
+    engine = create_engine(DB_URL)
+    with engine.begin() as conn:
+        result = conn.execute(text(query), params or {})
+        if fetch_all:
+            return [dict(row) for row in result.mappings()]
+        if fetch_one:
+            row = result.mappings().first()
+            return dict(row) if row else None
+        return result
+
+# ==========================================
+# 📊 ENDPOINT: CONSOLIDADO DE DATOS (DASHBOARD)
+# ==========================================
+
+@app.get("/api/dashboard-data")
+def get_dashboard_data():
+    """
+    Retorna el estado completo del negocio para alimentar la UI estática en Vercel.
+    """
+    try:
+        # Cargar todos los datos desde Supabase
+        turnos = execute_query("SELECT t.id, t.fecha_hora, t.estado, c.nombre as cliente_nombre, v.patente, s.nombre as servicio_nombre, s.precio FROM turnos t JOIN clientes c ON t.cliente_id = c.id JOIN vehiculos v ON t.vehiculo_id = v.id JOIN servicios s ON t.servicio_id = s.id ORDER BY t.fecha_hora DESC;", fetch_all=True)
+        productos = execute_query("SELECT * FROM productos ORDER BY nombre;", fetch_all=True)
+        servicios = execute_query("SELECT * FROM servicios ORDER BY nombre;", fetch_all=True)
+        empleados = execute_query("SELECT * FROM empleados ORDER BY nombre;", fetch_all=True)
+        clientes = execute_query("SELECT * FROM clientes ORDER BY nombre;", fetch_all=True)
+        vehiculos = execute_query("SELECT * FROM vehiculos ORDER BY patente;", fetch_all=True)
+        caja_activa = execute_query("SELECT * FROM cajas_diarias WHERE estado = 'ABIERTA' ORDER BY id DESC LIMIT 1;", fetch_one=True)
+        
+        # NPS Metrics
+        nps_data = get_nps_metrics()
+        
+        # Filtros de stock
+        bajo_stock = [p for p in productos if p["stock"] <= p["stock_minimo"]]
+        
+        return {
+            "status": "success",
+            "db_offline": False,
+            "turnos": turnos,
+            "productos": productos,
+            "servicios": servicios,
+            "empleados": empleados,
+            "clientes": clientes,
+            "vehiculos": vehiculos,
+            "caja": caja_activa,
+            "nps": nps_data,
+            "productosBajoStock": bajo_stock
+        }
+    except Exception as e:
+        print(f"[DASHBOARD-WARNING] DB Error ({e}). Cargando fallback de demostración.")
+        # Fallback Mock Completo
+        return get_mock_dashboard_data(str(e))
+
+# ==========================================
+# 📈 ENDPOINT: SEGMENTACIÓN DE CLIENTES (PANDAS)
+# ==========================================
+
+@app.get("/api/marketing/segmentacion")
+@app.get("/segmentacion")
+def get_customer_segmentation():
     try:
         engine = create_engine(DB_URL)
         query = """
             SELECT 
-                c.id, 
-                c.nombre, 
-                c.telefono, 
-                c.email, 
-                c.clasificacion as clasificacion_actual, 
-                c.fecha_registro,
-                COALESCE(SUM(v.total), 0) as total_gastado,
-                COUNT(v.id) as cantidad_visitas,
-                c.ultima_visita
+                c.id, c.nombre, c.telefono, c.clasificacion as clasificacion_actual, c.ultima_visita,
+                COALESCE(COUNT(t.id), 0) as cantidad_visitas,
+                COALESCE(SUM(s.precio), 0) as total_gastado
             FROM clientes c
-            LEFT JOIN ventas v ON c.id = v.cliente_id AND v.estado = 'COMPLETADA'
+            LEFT JOIN turnos t ON c.id = t.cliente_id AND t.estado = 'COMPLETADO'
+            LEFT JOIN servicios s ON t.servicio_id = s.id
             GROUP BY c.id;
         """
-        # Cargar datos directo a un DataFrame de Pandas
-        with engine.connect() as connection:
-            df = pd.read_sql_query(text(query), connection)
-        return df, False
+        with engine.connect() as conn:
+            df = pd.read_sql_query(text(query), conn)
+        is_mock = False
     except Exception as e:
-        # Fallback a datos simulados para permitir la ejecución/demostración inicial sin DB configurada
-        mock_data = {
-            "id": [1, 2, 3, 4],
-            "nombre": ["Juan Pérez", "María Rodríguez", "Carlos Gómez", "Ana López"],
-            "telefono": ["+5491122334455", "+5491133445566", "+5491144556677", "+5491155667788"],
-            "email": ["juan.perez@email.com", "maria.rod@email.com", "carlos@email.com", "ana.lopez@email.com"],
-            "clasificacion_actual": ["FRECUENTE", "VIP", "OCASIONAL", "OCASIONAL"],
-            "fecha_registro": ["2026-05-28", "2026-06-22", "2026-05-13", "2026-06-25"],
-            "total_gastado": [15000.0, 45000.0, 2500.0, 5000.0],
-            "cantidad_visitas": [6, 15, 1, 2],
-            "ultima_visita": ["2026-05-28", "2026-06-22", "2026-06-02", "2026-06-25"]
-        }
+        print(f"[FASTAPI-WARNING] DB Offline. Cargando mock de segmentación: {e}")
+        mock_data = [
+            {"id": 1, "nombre": "Juan Pérez", "telefono": "+5491122334455", "clasificacion_actual": "FRECUENTE", "cantidad_visitas": 6, "total_gastado": 15000.0, "ultima_visita": "2026-05-28"},
+            {"id": 2, "nombre": "María Rodríguez", "telefono": "+5491133445566", "clasificacion_actual": "VIP", "cantidad_visitas": 15, "total_gastado": 45000.0, "ultima_visita": "2026-06-22"},
+            {"id": 3, "nombre": "Carlos Gómez", "telefono": "+5491144556677", "clasificacion_actual": "OCASIONAL", "cantidad_visitas": 2, "total_gastado": 5000.0, "ultima_visita": "2026-06-02"},
+            {"id": 4, "nombre": "Ana López", "telefono": "+5491155667788", "clasificacion_actual": "OCASIONAL", "cantidad_visitas": 1, "total_gastado": 1500.0, "ultima_visita": "2026-06-25"}
+        ]
         df = pd.DataFrame(mock_data)
-        # Convertir fechas de texto a datetime
-        df['ultima_visita'] = pd.to_datetime(df['ultima_visita'])
-        return df, True
+        is_mock = True
 
-@app.get("/")
-def read_root():
-    return {
-        "status": "online",
-        "service": "Car Wash Analytics Service",
-        "endpoints": {
-            "/segmentacion": "Calcula y actualiza la segmentación de clientes VIP/Frecuentes/Ocasionales"
-        }
-    }
-
-@app.get("/segmentacion")
-def calculate_segmentation():
-    df, is_mock = get_customer_data_from_db()
-    
-    # 1. Definir reglas de Growth Marketing basadas en gasto acumulado y visitas
-    # VIP: Gasto > $30,000 ARS o más de 10 visitas
-    # FRECUENTE: Gasto entre $10,000 y $30,000 ARS, o entre 4 y 10 visitas
-    # OCASIONAL: Menos de $10,000 ARS y menos de 4 visitas
     def categorizar_cliente(row):
-        gasto = float(row['total_gastado'])
+        total = float(row['total_gastado'])
         visitas = int(row['cantidad_visitas'])
-        if gasto > 30000 or visitas > 10:
+        if total > 30000 or visitas > 10:
             return "VIP"
-        elif gasto >= 10000 or visitas >= 4:
+        elif total > 10000 or visitas >= 4:
             return "FRECUENTE"
         else:
             return "OCASIONAL"
 
-    # Aplicar la función de segmentación
     df['segmento_calculado'] = df.apply(categorizar_cliente, axis=1)
 
-    # 2. Si no es un mock, actualizar la base de datos con la nueva clasificación
-    actualizaciones_exitosas = 0
     if not is_mock:
         try:
-            engine = create_engine(DB_URL)
-            with engine.begin() as conn:
-                for _, row in df.iterrows():
-                    # Solo actualizar si cambió la clasificación para evitar escrituras redundantes
-                    if row['segmento_calculado'] != row['clasificacion_actual']:
-                        update_query = text("UPDATE clientes SET clasificacion = :seg WHERE id = :id")
-                        conn.execute(update_query, {"seg": row['segmento_calculado'], "id": int(row['id'])})
-                        actualizaciones_exitosas += 1
+            for _, row in df.iterrows():
+                if row['segmento_calculado'] != row['clasificacion_actual']:
+                    execute_query("UPDATE clientes SET clasificacion = :seg WHERE id = :id", {"seg": row['segmento_calculado'], "id": int(row['id'])})
         except Exception as e:
-            # Manejo de error silencioso en la actualización para no romper el GET
-            print(f"Error al actualizar clasificación en DB: {e}")
+            print(f"Error al guardar clasificaciones: {e}")
 
-    # Formatear fechas para la respuesta JSON
     if 'ultima_visita' in df.columns:
-        df['ultima_visita'] = df['ultima_visita'].dt.strftime('%Y-%m-%d %H:%M:%S')
-
-    result = df.to_dict(orient="records")
+        df['ultima_visita'] = df['ultima_visita'].astype(str)
 
     return {
         "status": "success",
         "db_fallback_mocked": is_mock,
-        "total_procesados": len(result),
-        "actualizaciones_realizadas": actualizaciones_exitosas,
-        "clientes": result
+        "total_procesados": len(df),
+        "clientes": df.to_dict(orient="records")
     }
 
+# ==========================================
+# ⭐ ENDPOINT: NET PROMOTER SCORE (NPS)
+# ==========================================
+
+@app.get("/api/marketing/nps")
 @app.get("/nps")
 def get_nps_metrics():
-    """
-    Calcula el Net Promoter Score (NPS) consultando la tabla feedback_clientes.
-    """
     try:
         engine = create_engine(DB_URL)
-        query = "SELECT puntuacion FROM feedback_clientes;"
-        with engine.connect() as connection:
-            df = pd.read_sql_query(text(query), connection)
-        
+        df = pd.read_sql_query(text("SELECT puntuacion FROM feedback_clientes;"), conn := engine.connect())
+        conn.close()
         is_mock = False
     except Exception as e:
-        # Fallback a datos simulados si la base de datos no está disponible
-        print(f"Error de conexion, usando mock NPS: {e}")
         df = pd.DataFrame({"puntuacion": [5, 5, 4, 2, 5, 4, 5, 3]})
         is_mock = True
 
     if df.empty:
-        return {
-            "status": "NO_DATA",
-            "nps": 0,
-            "total_respuestas": 0,
-            "promotores": 0,
-            "pasivos": 0,
-            "detractores": 0,
-            "db_fallback_mocked": is_mock
-        }
+        return {"status": "NO_DATA", "nps": 0, "total_respuestas": 0, "promotores": 0, "pasivos": 0, "detractores": 0, "nivel": "SIN DATOS"}
 
     total = len(df)
     promotores = len(df[df['puntuacion'] == 5])
@@ -155,13 +173,7 @@ def get_nps_metrics():
     pct_detractores = (detractores / total) * 100
     nps_score = round(pct_promotores - pct_detractores, 1)
 
-    # Clasificar nivel
-    if nps_score >= 50:
-        nivel = "EXCELENTE"
-    elif nps_score >= 0:
-        nivel = "BUENO"
-    else:
-        nivel = "CRÍTICO"
+    nivel = "EXCELENTE" if nps_score >= 50 else ("BUENO" if nps_score >= 0 else "CRÍTICO")
 
     return {
         "status": "success",
@@ -176,7 +188,276 @@ def get_nps_metrics():
         "db_fallback_mocked": is_mock
     }
 
+# ==========================================
+# 👥 ENDPOINTS: EQUIPO DE TRABAJO (STAFF)
+# ==========================================
+
+@app.post("/api/empleados/nuevo")
+def add_employee(nombre: str, rol: str, telefono: str = ""):
+    try:
+        execute_query("INSERT INTO empleados (nombre, rol, telefono, activo) VALUES (:nombre, :rol, :telefono, TRUE);", 
+                      {"nombre": nombre, "rol": rol, "telefono": telefono})
+        return {"status": "success", "message": "Empleado creado con éxito."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al registrar empleado: {e}")
+
+@app.post("/api/empleados/{id}/estado")
+def toggle_employee_status(id: int, activo: bool):
+    try:
+        execute_query("UPDATE empleados SET activo = :activo WHERE id = :id;", {"activo": activo, "id": id})
+        return {"status": "success", "message": "Estado del empleado actualizado."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al cambiar disponibilidad: {e}")
+
+# ==========================================
+# 📅 ENDPOINTS: TURNOS (AGENDA)
+# ==========================================
+
+@app.post("/api/turnos/agendar")
+def schedule_appointment(clienteId: int, vehiculoId: int, servicioId: int, fechaHora: str):
+    try:
+        # fechaHora viene como YYYY-MM-DDTHH:MM
+        fecha_parsed = datetime.strptime(fechaHora.replace("T", " "), "%Y-%m-%d %H:%M:%S" if len(fechaHora) > 16 else "%Y-%m-%d %H:%M")
+        execute_query("INSERT INTO turnos (cliente_id, vehiculo_id, servicio_id, fecha_hora, estado) VALUES (:c, :v, :s, :f, 'PENDIENTE');",
+                      {"c": clienteId, "v": vehiculoId, "s": servicioId, "f": fecha_parsed})
+        return {"status": "success", "message": "Turno agendado correctamente."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al agendar turno: {e}")
+
+@app.post("/api/turnos/{id}/estado")
+def update_appointment_status(id: int, estado: str):
+    try:
+        execute_query("UPDATE turnos SET estado = :estado WHERE id = :id;", {"estado": estado, "id": id})
+        return {"status": "success", "message": f"Estado del turno cambiado a {estado}."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al actualizar estado del turno: {e}")
+
+# ==========================================
+# 💵 ENDPOINTS: CAJA DIARIA
+# ==========================================
+
+@app.post("/api/caja/abrir")
+def open_cashbox(montoApertura: float):
+    try:
+        caja_activa = execute_query("SELECT id FROM cajas_diarias WHERE estado = 'ABIERTA';", fetch_one=True)
+        if caja_activa:
+            return {"status": "error", "message": "Ya existe una caja abierta actualmente."}
+        
+        execute_query("INSERT INTO cajas_diarias (fecha_apertura, monto_apertura, saldo_actual, estado) VALUES (NOW(), :monto, :monto, 'ABIERTA');",
+                      {"monto": montoApertura})
+        return {"status": "success", "message": "Caja diaria abierta con éxito."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al abrir caja: {e}")
+
+@app.post("/api/caja/cerrar")
+def close_cashbox(montoCierre: float):
+    try:
+        caja_activa = execute_query("SELECT id, monto_apertura, saldo_actual FROM cajas_diarias WHERE estado = 'ABIERTA' ORDER BY id DESC LIMIT 1;", fetch_one=True)
+        if not caja_activa:
+            return {"status": "error", "message": "No hay ninguna caja abierta para cerrar."}
+        
+        execute_query("UPDATE cajas_diarias SET fecha_cierre = NOW(), monto_cierre = :cierre, estado = 'CERRADA' WHERE id = :id;",
+                      {"cierre": montoCierre, "id": caja_activa["id"]})
+        return {"status": "success", "message": f"Caja cerrada correctamente. Saldo esperado: ${caja_activa['saldo_actual']} | Saldo real ingresado: ${montoCierre}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al cerrar caja: {e}")
+
+# ==========================================
+# 🛒 ENDPOINTS: PUNTO DE VENTA (POS)
+# ==========================================
+
+@app.post("/api/pos/productos/{id}/reabastecer")
+def restock_product(id: int, cantidad: int):
+    try:
+        execute_query("UPDATE productos SET stock = stock + :qty WHERE id = :id;", {"qty": cantidad, "id": id})
+        prod = execute_query("SELECT nombre, stock FROM productos WHERE id = :id;", {"id": id}, fetch_one=True)
+        return {"status": "success", "nombre": prod["nombre"], "stock": prod["stock"]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al reabastecer: {e}")
+
+@app.post("/api/pos/feedback")
+def submit_feedback(clienteId: int, puntuacion: int, comentario: str = ""):
+    try:
+        execute_query("INSERT INTO feedback_clientes (cliente_id, puntuacion, comentario) VALUES (:c, :p, :co);",
+                      {"c": clienteId, "p": puntuacion, "co": comentario})
+        return {"status": "success", "message": "Feedback guardado correctamente."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al guardar feedback: {e}")
+
+@app.post("/api/pos/venta")
+def register_sale(payload: dict):
+    """
+    Registra una venta e impacta el inventario y la caja en Supabase.
+    Payload: { clienteId, metodoPago, detalles: [{productoId, cantidad}], codigoCupon }
+    """
+    try:
+        cliente_id = payload.get("clienteId")
+        metodo_pago = payload.get("metodoPago", "EFECTIVO")
+        detalles = payload.get("detalles", [])
+        codigo_cupon = payload.get("codigoCupon")
+        
+        caja = execute_query("SELECT id, saldo_actual FROM cajas_diarias WHERE estado = 'ABIERTA' ORDER BY id DESC LIMIT 1;", fetch_one=True)
+        if not caja:
+            return {"status": "error", "message": "Operación denegada. La caja diaria está cerrada."}
+            
+        # Calcular totales y comprobar stock
+        subtotal = 0.0
+        alertas_stock = []
+        updates_stock = []
+        
+        for d in detalles:
+            p_id = d.get("productoId")
+            qty = d.get("cantidad", 1)
+            
+            p = execute_query("SELECT nombre, stock, precio_venta, stock_minimo FROM productos WHERE id = :id;", {"id": p_id}, fetch_one=True)
+            if not p:
+                return {"status": "error", "message": f"Producto ID {p_id} no encontrado."}
+                
+            if p["stock"] < qty:
+                return {"status": "error", "message": f"Stock insuficiente para {p['nombre']}. Stock disponible: {p['stock']}"}
+                
+            item_cost = float(p["precio_venta"]) * qty
+            subtotal += item_cost
+            
+            new_stock = p["stock"] - qty
+            updates_stock.append((p_id, new_stock))
+            
+            if new_stock <= p["stock_minimo"]:
+                alertas_stock.append(f"¡Atención! {p['nombre']} quedó en stock crítico ({new_stock} unidades).")
+                
+        # Aplicar cupón de descuento
+        descuento = 0.0
+        if codigo_cupon:
+            cup = execute_query("SELECT id, descuento_porcentaje, usado FROM cupones_descuento WHERE codigo = :code;", {"code": codigo_cupon}, fetch_one=True)
+            if cup and not cup["usado"]:
+                descuento = subtotal * (float(cup["descuento_porcentaje"]) / 100.0)
+                execute_query("UPDATE cupones_descuento SET usado = TRUE, fecha_uso = NOW() WHERE id = :id;", {"id": cup["id"]})
+                
+        total_final = subtotal - descuento
+        
+        # Registrar Venta
+        execute_query("INSERT INTO ventas (cliente_id, fecha_hora, total, metodo_pago) VALUES (:c, NOW(), :t, :m);",
+                      {"c": cliente_id, "t": total_final, "m": metodo_pago})
+        
+        last_v = execute_query("SELECT id FROM ventas ORDER BY id DESC LIMIT 1;", fetch_one=True)
+        
+        # Registrar Detalles y Actualizar Inventario
+        for index, d in enumerate(detalles):
+            p_id = d.get("productoId")
+            qty = d.get("cantidad", 1)
+            p = execute_query("SELECT precio_venta FROM productos WHERE id = :id;", {"id": p_id}, fetch_one=True)
+            
+            execute_query("INSERT INTO venta_detalles (venta_id, producto_id, cantidad, precio_unitario, subtotal) VALUES (:v, :p, :q, :pr, :sub);",
+                          {"v": last_v["id"], "p": p_id, "q": qty, "pr": p["precio_venta"], "sub": float(p["precio_venta"]) * qty})
+            
+            execute_query("UPDATE productos SET stock = :st WHERE id = :id;", {"st": updates_stock[index][1], "id": p_id})
+            
+        # Actualizar Caja
+        nuevo_saldo = float(caja["saldo_actual"]) + total_final
+        execute_query("UPDATE cajas_diarias SET saldo_actual = :st WHERE id = :id;", {"st": nuevo_saldo, "id": caja["id"]})
+        
+        return {
+            "status": "success",
+            "venta": {"id": last_v["id"], "total": total_final},
+            "alertasStock": alertas_stock
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error en transacción POS: {e}")
+
+# ==========================================
+# 📣 ENDPOINT: CAMPAÑA FIDELIDAD (PROCESSBUILDER FALLBACK)
+# ==========================================
+
+@app.post("/api/marketing/run-loyalty")
+def run_loyalty():
+    """
+    Invocado para buscar clientes inactivos > 20 días y generar cupones del 15%.
+    """
+    try:
+        limite_inactividad = datetime.now() - timedelta(days=20)
+        clientes_inactivos = execute_query("SELECT id, nombre, telefono FROM clientes WHERE ultima_visita <= :limite;", {"limite": limite_inactividad}, fetch_all=True)
+        
+        nuevos_cupones = []
+        for c in clientes_inactivos:
+            # Comprobar si ya tiene un cupón activo
+            existente = execute_query("SELECT id FROM cupones_descuento WHERE cliente_id = :id AND usado = FALSE;", {"id": c["id"]}, fetch_one=True)
+            if not existente:
+                chars = string.ascii_uppercase + string.digits
+                code = "VOLVE" + "".join(random.choice(chars) for _ in range(4))
+                expiracion = datetime.now() + timedelta(days=15)
+                
+                execute_query("INSERT INTO cupones_descuento (codigo, cliente_id, descuento_porcentaje, fecha_creacion, fecha_expiracion, usado) VALUES (:code, :c_id, 15, NOW(), :exp, FALSE);",
+                              {"code": code, "c_id": c["id"], "exp": expiracion})
+                
+                nuevos_cupones.append(f"Generado cupón 15% para {c['nombre']} ({code})")
+                
+        return {
+            "success": True,
+            "exitCode": 0,
+            "stdout": "\n".join(nuevos_cupones) if nuevos_cupones else "No se encontraron clientes inactivos sin cupón previo.",
+            "stderr": ""
+        }
+    except Exception as e:
+        return {"success": False, "exitCode": 1, "stdout": "", "stderr": str(e)}
+
+# ==========================================
+# 🛠️ FALLBACKS DE DATOS MOCK
+# ==========================================
+
+def get_mock_dashboard_data(err_msg: str):
+    return {
+        "status": "success",
+        "db_offline": True,
+        "db_error": err_msg,
+        "turnos": [
+            {"id": 1, "fecha_hora": "2026-06-27 10:00:00", "estado": "COMPLETADO", "cliente_nombre": "Juan Pérez", "patente": "AA123BB", "servicio_nombre": "Lavado Completo", "precio": 2500.0},
+            {"id": 2, "fecha_hora": "2026-06-27 14:00:00", "estado": "EN_PROCESO", "cliente_nombre": "María Rodríguez", "patente": "AF987ZZ", "servicio_nombre": "Encerado y Pulido", "precio": 6000.0},
+            {"id": 3, "fecha_hora": "2026-06-27 16:30:00", "estado": "PENDIENTE", "cliente_nombre": "Carlos Gómez", "patente": "AB456CD", "servicio_nombre": "Lavado Simple", "precio": 1500.0}
+        ],
+        "productos": [
+            {"id": 1, "nombre": "Silicona Interior Aromatizada", "stock": 2, "stock_minimo": 5, "precio_venta": 600.0},
+            {"id": 2, "nombre": "Cera Líquida Premium", "stock": 15, "stock_minimo": 4, "precio_venta": 900.0},
+            {"id": 3, "nombre": "Pino Aromatizante Classic", "stock": 50, "stock_minimo": 10, "precio_venta": 200.0},
+            {"id": 4, "nombre": "Paño Microfibra 40x40", "stock": 30, "stock_minimo": 8, "precio_venta": 400.0}
+        ],
+        "servicios": [
+            {"id": 1, "nombre": "Lavado Simple", "precio": 1500.0},
+            {"id": 2, "nombre": "Lavado Completo", "precio": 2500.0},
+            {"id": 3, "nombre": "Encerado y Pulido", "precio": 6000.0}
+        ],
+        "empleados": [
+            {"id": 1, "nombre": "Carlos Lavador", "rol": "LAVADOR", "telefono": "11223344", "activo": True},
+            {"id": 2, "nombre": "Marta Cajera", "rol": "CAJERO", "telefono": "11556677", "activo": True}
+        ],
+        "clientes": [
+            {"id": 1, "nombre": "Juan Pérez"},
+            {"id": 2, "nombre": "María Rodríguez"},
+            {"id": 3, "nombre": "Carlos Gómez"},
+            {"id": 4, "nombre": "Ana López"}
+        ],
+        "vehiculos": [
+            {"id": 1, "cliente_id": 1, "patente": "AA123BB", "marca": "Toyota", "modelo": "Corolla"},
+            {"id": 2, "cliente_id": 2, "patente": "AF987ZZ", "marca": "Ford", "modelo": "Focus"},
+            {"id": 3, "cliente_id": 3, "patente": "AB456CD", "marca": "Chevrolet", "modelo": "Onix"},
+            {"id": 4, "cliente_id": 4, "patente": "AD789EF", "marca": "Volkswagen", "modelo": "Gol"}
+        ],
+        "caja": {"id": 1, "fecha_apertura": "2026-06-27 08:00:00", "monto_apertura": 10000.0, "saldo_actual": 12500.0, "estado": "ABIERTA"},
+        "nps": {
+            "status": "success",
+            "nivel": "EXCELENTE",
+            "nps": 75.0,
+            "total_respuestas": 8,
+            "promotores": 6,
+            "pasivos": 1,
+            "detractores": 1,
+            "porcentaje_promotores": 75.0,
+            "porcentaje_detractores": 12.5
+        },
+        "productosBajoStock": [
+            {"id": 1, "nombre": "Silicona Interior Aromatizada", "stock": 2, "stock_minimo": 5, "precio_venta": 600.0}
+        ]
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
