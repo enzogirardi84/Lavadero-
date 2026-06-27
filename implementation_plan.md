@@ -1,82 +1,65 @@
-# Plan de Implementación: Mejora Completa del Lavadero (Diseño Premium + Landing Page + Auth + Control de Roles)
+# Plan de Implementación: Módulo CRM (Registro Rápido de Vehículos) y Libro de Movimientos de Caja
 
-Realizaremos una reestructuración integral de la aplicación para dotarla de un diseño visual de primer nivel (Wow-Factor UI), una página de publicidad/captación de clientes en la raíz, un portal de acceso seguro vinculado a Supabase y protección de roles en el panel de control.
+Ampliaremos el software agregando dos herramientas críticas para la operación real: un **registro rápido de clientes y vehículos** en el Dashboard para agilizar el ingreso de autos nuevos, y un **libro contable de caja** (Ingresos y Egresos de efectivo) para tener un control granular del dinero.
 
 ---
 
-## 1. Mapa de Enrutamiento y Flujo de Navegación (Vercel SPA)
+## 1. Diseño del Flujo Comercial
 
 ```mermaid
 graph TD
-    Visit[Visita /] -->|1. Landing Page| Landing[index.html: Publicidad y Tarifas]
-    Landing -->|2. Iniciar Sesión| Login[login.html: Acceso con Supabase]
-    Login -->|3. POST /api/auth/login| FastAPI[FastAPI Serverless]
-    FastAPI -->|4. Validar Credenciales| DB[(Supabase usuarios)]
-    Login -->|5. Guardar Sesión| Dash[dashboard.html: Control de Roles]
-    Dash -->|6. Validar Sesión y Rol| Restricted[Funcionalidad de Caja, POS o Turnos]
+    Dashboard[Dashboard UI] -->|1. Registrar Cliente + Auto| APICRM[FastAPI /api/clientes/nuevo]
+    APICRM -->|2. Insertar Clientes y Vehículos| DB[(Supabase PostgreSQL)]
+    Dashboard -->|3. Registrar Gasto / Egreso| APICaja[FastAPI /api/caja/movimiento]
+    APICaja -->|4. Insertar caja_movimientos y actualizar saldo_actual| DB
 ```
 
-### A. Página de Publicidad (index.html)
-* **Objetivo:** Captación y marketing.
-* **Alineación Visual:** Gradientes vivos de violeta oscuro (`#0F172A`) a violeta eléctrico (`#8B5CF6`) y azul cian (`#0EA5E9`).
-* **Secciones:** Hero Banner, Estadísticas de Clientes Felices (NPS), Selector de Tarifas y Servicios Interactivos (Lavado Simple, Completo, Motor, Pulido), Testimonios, y Botón de Acción destacado (CTA) para ingresar al sistema de gestión de personal.
+### A. Módulo CRM: Alta Rápida de Clientes y Vehículos
+* **Interconectividad:** En el panel de control, agregaremos una pestaña o formulario colapsable donde el cajero puede registrar a un nuevo cliente (Nombre, Teléfono, Email) y asociar de inmediato su auto (Patente, Marca, Modelo, Color, Año).
+* **Dinámica AJAX:** Al enviar el formulario, las listas desplegables (dropdowns) de la agenda de turnos y punto de venta se actualizarán al instante sin recargar la página, seleccionando por defecto el nuevo registro.
 
-### B. Portal de Acceso (login.html)
-* **Objetivo:** Autenticación de personal mediante la tabla `usuarios` existente en Supabase.
-* **Características:**
-  * Tarjeta de login con efecto espejo y desenfoque (backdrop-filter).
-  * Validación local de campos y feedback de carga.
-  * Conexión asíncrona a `/api/auth/login`. Al autenticarse, guarda la sesión (`id_usuario`, `nombre`, `rol`) en el `localStorage` del navegador y redirige a `/dashboard`.
-
-### C. Dashboard Premium (dashboard.html)
-* **Objetivo:** Consolidado de control.
-* **Control de Acceso (RBAC):**
-  * Si no hay sesión iniciada, redirige de inmediato a `/login`.
-  * Muestra el nombre y rol del usuario conectado en la barra superior.
-  * **Roles Habilitados (RBAC):**
-    * **`superadmin` / `administrador`:** Acceso total a todas las herramientas (POS, Apertura/Cierre de Caja, Equipo de Trabajo, Turnos y Analíticas).
-    * **`mozo` / `cocina` (Operadores):** Únicamente visualizan la Agenda de Turnos y pueden cambiar el estado del lavado (Iniciar/Completar). El POS de ventas y la caja diaria se bloquean visualmente mostrando un cartel de restricción de permisos.
-
-### D. Enrutamiento Limpio (vercel.json)
-Habilitaremos `"cleanUrls": true` para que las rutas del navegador sean:
-* `https://lavadero.vercel.app/` (Landing Page)
-* `https://lavadero.vercel.app/login` (Auth Portal)
-* `https://lavadero.vercel.app/dashboard` (Workspace Panel)
+### B. Libro de Movimientos de Caja (`caja_movimientos`)
+Para evitar descuadres en el arqueo de caja, permitiremos registrar movimientos manuales de dinero:
+* **Egresos:** Pagos de insumos, comidas del personal, viáticos.
+* **Ingresos Extra:** Cambio de monedas, aportes manuales.
+* **Fórmula de Saldo Activo:** El `saldo_actual` de la caja abierta se calculará sumando la apertura, las ventas realizadas y los movimientos manuales (`Ingresos` - `Egresos`).
+* **Visualización:** El widget de Caja Diaria mostrará un historial en miniatura de las últimas transacciones de caja de ese día.
 
 ---
 
 ## Proposed Changes
 
-### [Componente: Backend FastAPI (Python)]
-*APIs de autenticación e integración.*
+### [Componente: Estructura de Base de Datos]
+*Definición de esquemas para el histórico de caja.*
 
-#### [MODIFY] [main.py](file:///c:/Lavadero/automation-python/api/main.py)
-- Crear el endpoint `POST /api/auth/login` que valide la contraseña y username contra la tabla `usuarios` de Supabase.
-- Proveer fallback mock de usuarios si la DB está desconectada para mantener la app 100% interactiva en modo demo.
+#### [MODIFY] [schema.sql](file:///c:/Lavadero/database/schema.sql)
+- Crear la tabla `caja_movimientos` y registrar movimientos semilla de prueba.
 
 ---
 
-### [Componente: Frontend Premium Vercel (HTML/JS)]
-*Pantallas e interfaz estática.*
+### [Componente: Analítica y APIs en Python]
+*Implementación de endpoints CRM y Caja.*
 
-#### [NEW] [login.html](file:///c:/Lavadero/login.html)
-- Vista del portal de acceso con diseño visual premium, validación y redirección segura.
+#### [MODIFY] [main.py](file:///c:/Lavadero/automation-python/api/main.py)
+- Agregar endpoint `POST /api/clientes/nuevo` para dar de alta clientes.
+- Agregar endpoint `POST /api/vehiculos/nuevo` para vincular vehículos.
+- Agregar endpoint `POST /api/caja/movimiento` que inserta egresos/ingresos y actualiza el `saldo_actual` de la caja activa.
+- Actualizar `GET /api/dashboard-data` para retornar la lista de movimientos de caja activos.
 
-#### [NEW] [dashboard.html](file:///c:/Lavadero/dashboard.html)
-- Mover la UI del panel de control de `index.html` a `dashboard.html` y aplicar restricciones de rol (RBAC) y validación de inicio de sesión.
+---
 
-#### [MODIFY] [index.html](file:///c:/Lavadero/index.html)
-- Reestructurar el archivo raíz para convertirlo en una Landing Page publicitaria del lavadero.
+### [Componente: Panel de Control (HTML/JS)]
+*Nuevos widgets e interactividad.*
 
-#### [MODIFY] [vercel.json](file:///c:/Lavadero/vercel.json)
-- Habilitar `"cleanUrls": true` en la raíz.
+#### [MODIFY] [dashboard.html](file:///c:/Lavadero/dashboard.html)
+- Añadir el formulario de registro rápido **"➕ Registrar Cliente & Vehículo"** en la primera columna.
+- Añadir el listado e inserción de movimientos de caja (Egresos/Ingresos) en la tarjeta de Caja Diaria.
+- JavaScript AJAX para actualizar dropdowns e impactar el saldo en vivo.
 
 ---
 
 ## 2. Plan de Verificación
 
-1. **Autenticación:** Validar que al ingresar credenciales incorrectas se muestre un aviso de error. Probar con `super@admi.com` y `superadmi2026/` para verificar el login exitoso.
-2. **Restricción de Roles:**
-   * Entrar como `enzo` (Mozo) y verificar que no se pueda usar el POS ni abrir/cerrar caja diaria.
-   * Entrar como `admin` (Superadmin) y verificar el acceso ilimitado.
-3. **Redirección de Seguridad:** Intentar abrir `/dashboard` sin haber iniciado sesión para comprobar que redirija automáticamente a `/login`.
+### Pruebas de Flujo
+1. **Alta CRM:** Registrar al cliente "Emilio Sanz" con patente "AG999ZZ". Validar que aparezca inmediatamente en el listado de agendado de turnos.
+2. **Libro de Caja:** Agregar un egreso de $1,200 por "Compra de esponjas". Verificar que el `saldo_actual` de la caja abierta disminuya de forma exacta en el dashboard.

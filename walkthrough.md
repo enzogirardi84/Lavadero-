@@ -1,46 +1,35 @@
-# Walkthrough: Mejora Híbrida del Lavadero (SaaS Completo en Vercel)
+# Walkthrough de la Implementación: CRM Rápido y Libro de Caja
 
-Hemos completado la reestructuración completa del sistema del lavadero, transformándolo en un **SaaS completo con Landing Page, Portal de Autenticación y Dashboard de Control de Roles**, desplegado serverless en **Vercel** y conectado en tiempo real con **Supabase**.
-
----
-
-## 🎨 Nuevos Componentes Visuales y Funcionales
-
-### 1. Página de Publicidad y Tarifas (`index.html`)
-* Ubicación: [index.html](file:///c:/Lavadero/index.html) (Raíz).
-* **Diseño Premium:** Una landing page moderna con gradientes oscuros y violetas dedicada a captar clientes y promocionar los servicios de **Mobile Wash**.
-* **Secciones:**
-  * Hero Section de alto impacto con CTA ("Acceder al Sistema").
-  * Tarjetas de Precios interactivas para los servicios de lavado (Simple: $1500, Completo: $2500, Pulido: $6000).
-  * Estadísticas de satisfacción general (NPS +75).
-
-### 2. Portal de Acceso Seguro (`login.html`)
-* Ubicación: [login.html](file:///c:/Lavadero/login.html).
-* **Características:**
-  * Formulario de login glassmorphic centrado.
-  * Realiza consultas AJAX contra el endpoint `/api/auth/login`.
-  * En caso de autenticación exitosa, guarda de manera local en `localStorage` el perfil y rol del usuario e inicia la redirección a `/dashboard`.
-  * Muestra credenciales de prueba autocompletadas para facilitar los tests.
-
-### 3. Dashboard con Control de Roles (`dashboard.html`)
-* Ubicación: [dashboard.html](file:///c:/Lavadero/dashboard.html).
-* **Seguridad:** Si el usuario intenta abrir el panel sin una sesión activa, se redirige automáticamente a `/login`.
-* **RBAC (Role-Based Access Control):**
-  * Si el rol del usuario es administrador o superadmin, tiene acceso a todos los módulos.
-  * Si el rol es operario/operador (mozo/cocina, como `enzo` / `1234`), la interfaz bloquea el POS, la Caja Diaria, el Growth Marketing y la edición de empleados mediante un **overlay glassmorphic de bloqueo de permisos** con un ícono de candado, permitiendo solo la administración de turnos y lavados en progreso.
-
-### 4. APIs de Autenticación (`api/main.py`)
-* Ubicación: [main.py](file:///c:/Lavadero/automation-python/api/main.py).
-* Implementado el endpoint `POST /api/auth/login` que valida contraseñas y usernames consultando directamente la tabla `usuarios` en Supabase.
-* Incluye fallback automático a mock de usuarios de prueba si la base de datos Supabase estuviera caída temporalmente.
-
-### 5. Enrutamiento Limpio (`vercel.json`)
-* Ubicación: [vercel.json](file:///c:/Lavadero/vercel.json).
-* Habilitado `"cleanUrls": true` para que los usuarios puedan navegar a `/`, `/login` y `/dashboard` sin extensiones `.html`.
+Hemos completado una mejora funcional mayor tanto en el **Frontend** como en el **Backend** y la **Base de Datos**, agregando herramientas administrativas clave para la operación diaria.
 
 ---
 
-## 🐙 Repositorio Actualizado
-Todos los cambios ya fueron empujados y publicados en tu repositorio remoto en GitHub:
-* [enzogirardi84/Lavadero-](https://github.com/enzogirardi84/Lavadero-)
-* Esto disparó la compilación de Vercel en caliente, actualizando tu sitio público al instante.
+## 🚀 Nuevas Herramientas Incorporadas
+
+### 1. Módulo CRM de Alta Rápida (`dashboard.html`)
+* **Ubicación:** Primera columna, justo arriba de la agenda de turnos.
+* **Flujo:** Un panel colapsable que permite ingresar rápidamente un cliente nuevo (Nombre, Teléfono) y asociarle al instante un vehículo (Patente, Marca, Modelo, Color, Año) en un único click.
+* **Interactividad:** Cuando el cajero guarda los datos, el sistema se conecta a `/api/clientes/nuevo` y `/api/vehiculos/nuevo`, y actualiza dinámicamente las listas de selección del formulario de turnos, dejándolas auto-seleccionadas con el nuevo cliente registrado para que se pueda crear su turno de inmediato sin tener que recargar la página.
+
+### 2. Libro de Caja y Registro de Egresos (`dashboard.html`)
+* **Ubicación:** Dentro de la tarjeta de Caja Diaria (segunda columna).
+* **Flujo:** Permite registrar movimientos manuales de dinero en efectivo (Ingresos como cambio, o Egresos por compras de insumos, comidas o viáticos).
+* **Ledger Digital:** Muestra un listado en miniatura con los últimos movimientos del día (egresos en rojo `-`, ingresos en verde `+`).
+* **Fórmula de Impacto:** Los movimientos manuales afectan en tiempo real al `saldo_actual` de la caja diaria abierta, previniendo descuadres.
+* **Seguridad:** Esta herramienta y su formulario están protegidos por el overlay de roles, por lo que los operarios comunes no pueden ver ni registrar egresos de dinero.
+
+### 3. Base de Datos (`database/schema.sql`)
+* Creada la tabla `caja_movimientos` con restricciones de tipo (`tipo IN ('INGRESO', 'EGRESO')`) y de monto (`monto > 0`), enlazada con clave foránea a la tabla principal `cajas_diarias`.
+* Se insertaron movimientos semilla de prueba.
+
+### 4. APIs de Control (`api/main.py`)
+* Implementados los endpoints:
+  * `POST /api/clientes/nuevo`
+  * `POST /api/vehiculos/nuevo`
+  * `POST /api/caja/movimiento`
+* Actualizado `GET /api/dashboard-data` para devolver el listado consolidado de movimientos de caja.
+
+---
+
+## 🐙 Despliegue Completado
+Todos los archivos actualizados fueron subidos a GitHub y compilados por Vercel. La aplicación está lista en producción.
