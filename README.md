@@ -90,15 +90,38 @@ graph TD
 
 ## 3. Guía de Ejecución y Despliegue
 
-### Paso 1: Configurar la Base de Datos
+### Paso 1: Configurar la Base de Datos (Local o Supabase)
+Puedes usar una base de datos PostgreSQL local, o bien la instancia en la nube de **Supabase**:
+
+#### Opción A: Inicialización Automatizada en Supabase
+El script interactivo en Python inicializa todas las tablas e índices en Supabase con datos semilla:
+1. Asegúrate de tener instalado `psycopg2-binary` y `pandas`.
+2. Corre el script de configuración:
+   ```bash
+   python database/setup_supabase_db.py
+   ```
+3. El script te solicitará la contraseña de tu base de datos Supabase, conectará a `db.sqczmyaoqplrmrgyczjy.supabase.co` e inicializará el esquema completo.
+
+#### Opción B: Base de Datos Local
 1. Instale y asegúrese de que su servidor PostgreSQL esté corriendo.
 2. Cree una base de datos llamada `lavadero`.
-3. Ejecute el script `database/schema.sql` para crear las tablas e insertar los datos iniciales de prueba:
+3. Ejecute el script `database/schema.sql`:
    ```bash
    psql -U postgres -d lavadero -f database/schema.sql
    ```
 
-### Paso 2: Configurar el Entorno Python
+### Paso 2: Ejecutar / Desplegar Python (Vercel Serverless o Local)
+
+#### Opción A: Despliegue en Vercel (Recomendado)
+El microservicio FastAPI de Python está pre-configurado para desplegarse como Serverless Functions en **Vercel** mediante Git:
+1. Sube tu código a tu repositorio GitHub:
+   ```bash
+   git push -u origin main
+   ```
+2. Agrega la variable de entorno `SUPABASE_DB_PASSWORD` en los ajustes de Vercel para permitir la conectividad.
+3. Vercel expondrá tu API en `https://lavadero.vercel.app`.
+
+#### Opción B: Ejecución Local
 1. Diríjase a la carpeta `automation-python`:
    ```bash
    cd automation-python
@@ -106,32 +129,39 @@ graph TD
 2. Cree e instale el entorno virtual (`venv`):
    ```bash
    python -m venv .venv
-   # En Windows para activar:
+   # Activar en Windows:
    .venv\Scripts\activate
-   # Instalar dependencias:
+   # Instalar:
    pip install -r requirements.txt
    ```
-3. Ejecute el microservicio FastAPI:
+3. Inicie el servidor de desarrollo:
    ```bash
    python api/main.py
    ```
-   *(Estará disponible en http://localhost:8000)*
 
-### Paso 3: Configurar y Ejecutar Java Spring Boot
-1. Abra el proyecto `backend-java` en su IDE preferido (IntelliJ, Eclipse, VS Code).
-2. Si su base de datos PostgreSQL tiene credenciales distintas a `postgres/postgres`, modifique las variables de entorno o edite el archivo [application.yml](file:///c:/Lavadero/backend-java/src/main/resources/application.yml).
-3. Asegúrese de configurar la variable `PYTHON_EXECUTABLE` con la ruta de su entorno virtual de Python para que la ejecución con ProcessBuilder resuelva correctamente las dependencias instaladas.
-4. Compile y ejecute el backend:
+### Paso 3: Ejecutar Java Spring Boot
+1. Define la variable de entorno `SUPABASE_DB_PASSWORD` con la clave de tu base de datos Supabase.
+2. Si usas Vercel para Python, define `PYTHON_FASTAPI_URL` con tu URL de Vercel.
+3. Ejecute el backend:
    ```bash
+   # En Windows (PowerShell):
+   $env:SUPABASE_DB_PASSWORD="tu_contraseña_supabase"
    mvn clean spring-boot:run
    ```
    *(Estará disponible en http://localhost:8080)*
 
-### Paso 4: Probar los Endpoints de Integración
-* **Ejecutar Campaña de Fidelización (Java ejecutando Python):**
-  Haga un POST a `http://localhost:8080/api/marketing/run-loyalty`.
-  *Esto invocará en segundo plano `customer_loyalty.py`, generando cupones de descuento en la DB para clientes inactivos.*
-* **Enviar Mensaje de WhatsApp Automatizado:**
-  Haga un POST a `http://localhost:8080/api/marketing/send-whatsapp?telefono=+5491122334455&mensaje=Tu auto está listo!`
-* **Obtener Segmentación de Clientes (FastAPI procesado con Pandas):**
-  Haga un GET a `http://localhost:8080/api/marketing/segmentacion` o directo a `http://localhost:8000/segmentacion`.
+---
+
+## 👥 Módulos Avanzados Incorporados
+
+### 🗣️ Satisfacción del Cliente y NPS (Net Promoter Score)
+* **Visualización en Dashboard:** Una tarjeta integrada calcula en tiempo real el Net Promoter Score del lavadero.
+* **Clasificación NPS:**
+  * Promotores (5★): Clientes altamente leales.
+  * Pasivos (4★): Satisfechos pero neutros.
+  * Detractores (1-3★): Oportunidades de mejora.
+* **Registro AJAX:** Formulario rápido para guardar la calificación de un lavado directamente.
+
+### 👥 Equipo de Trabajo (Staff)
+* Permite dar de alta empleados (Lavadores, Cajeros, Administradores).
+* **Control de Disponibilidad:** Un interruptor AJAX permite marcar operarios como activos o inactivos de inmediato para asignar turnos de forma eficiente.
