@@ -1,32 +1,46 @@
-# Walkthrough de la Implementación: SPA Completa en Vercel
+# Walkthrough: Mejora Híbrida del Lavadero (SaaS Completo en Vercel)
 
-Hemos completado la transformación del sistema en una **Single-Page Application (SPA)** de alto rendimiento que se ejecuta al 100% de manera nativa y serverless en **Vercel**, conectándose en tiempo real con la base de datos de **Supabase**.
-
----
-
-## ⚡ Nueva Arquitectura 100% en la Nube
-
-Para permitir que puedas visualizar y utilizar la interfaz completa del lavadero desde la URL pública de Vercel (sin necesidad de levantar un servidor local en tu computadora), desacoplamos la UI del servidor Java:
-
-### 1. Frontend Estático en la Raíz (`index.html`)
-* Creado [index.html](file:///c:/Lavadero/index.html) en la raíz del proyecto.
-* Mantiene el mismo diseño premium con Glassmorphism y Dark Mode.
-* **Procesamiento del Lado del Cliente:** Se reemplazaron todas las etiquetas Thymeleaf de Java (`th:text`, `th:each`, `th:if`) por peticiones asíncronas `fetch()` en JavaScript nativo. Al cargar la página, se cargan los KPIs, el listado de turnos, el estado de la caja diaria, la distribución del NPS, las alertas de stock y el roster de empleados de forma automática.
-
-### 2. Extensión del API Serverless de Python (`api/main.py`)
-* Se expandió [main.py](file:///c:/Lavadero/automation-python/api/main.py) agregando todos los endpoints transaccionales requeridos por la interfaz que antes manejaba el backend en Java, con soporte para fallbacks mockizados si Supabase está offline:
-  * `GET /api/dashboard-data`: Consolida toda la información comercial en un solo JSON.
-  * `POST /api/turnos/agendar` y `POST /api/turnos/{id}/estado` (Agenda).
-  * `POST /api/pos/venta` e `POST /api/pos/productos/{id}/reabastecer` (Punto de Venta e Inventario).
-  * `POST /api/pos/feedback` (NPS).
-  * `POST /api/empleados/nuevo` y `POST /api/empleados/{id}/estado` (Personal).
-  * `POST /api/caja/abrir` y `POST /api/caja/cerrar` (Caja Diaria).
-  * `POST /api/marketing/run-loyalty` (Campaña de Fidelización).
-
-### 3. Enrutamiento en Vercel (`vercel.json`)
-* Configurado [vercel.json](file:///c:/Lavadero/vercel.json) con la directiva `rewrites` para mapear las peticiones `/api/*` al motor serverless Python, mientras que las peticiones a la raíz `/` sirven de forma nativa la SPA estática.
+Hemos completado la reestructuración completa del sistema del lavadero, transformándolo en un **SaaS completo con Landing Page, Portal de Autenticación y Dashboard de Control de Roles**, desplegado serverless en **Vercel** y conectado en tiempo real con **Supabase**.
 
 ---
 
-## 🐙 Despliegue Automatizado a GitHub
-* Todo el código fue subido a GitHub y ha disparado la compilación automática en Vercel. Puedes acceder a tu panel de control de Vercel para visualizar el build y abrir la URL de producción.
+## 🎨 Nuevos Componentes Visuales y Funcionales
+
+### 1. Página de Publicidad y Tarifas (`index.html`)
+* Ubicación: [index.html](file:///c:/Lavadero/index.html) (Raíz).
+* **Diseño Premium:** Una landing page moderna con gradientes oscuros y violetas dedicada a captar clientes y promocionar los servicios de **Mobile Wash**.
+* **Secciones:**
+  * Hero Section de alto impacto con CTA ("Acceder al Sistema").
+  * Tarjetas de Precios interactivas para los servicios de lavado (Simple: $1500, Completo: $2500, Pulido: $6000).
+  * Estadísticas de satisfacción general (NPS +75).
+
+### 2. Portal de Acceso Seguro (`login.html`)
+* Ubicación: [login.html](file:///c:/Lavadero/login.html).
+* **Características:**
+  * Formulario de login glassmorphic centrado.
+  * Realiza consultas AJAX contra el endpoint `/api/auth/login`.
+  * En caso de autenticación exitosa, guarda de manera local en `localStorage` el perfil y rol del usuario e inicia la redirección a `/dashboard`.
+  * Muestra credenciales de prueba autocompletadas para facilitar los tests.
+
+### 3. Dashboard con Control de Roles (`dashboard.html`)
+* Ubicación: [dashboard.html](file:///c:/Lavadero/dashboard.html).
+* **Seguridad:** Si el usuario intenta abrir el panel sin una sesión activa, se redirige automáticamente a `/login`.
+* **RBAC (Role-Based Access Control):**
+  * Si el rol del usuario es administrador o superadmin, tiene acceso a todos los módulos.
+  * Si el rol es operario/operador (mozo/cocina, como `enzo` / `1234`), la interfaz bloquea el POS, la Caja Diaria, el Growth Marketing y la edición de empleados mediante un **overlay glassmorphic de bloqueo de permisos** con un ícono de candado, permitiendo solo la administración de turnos y lavados en progreso.
+
+### 4. APIs de Autenticación (`api/main.py`)
+* Ubicación: [main.py](file:///c:/Lavadero/automation-python/api/main.py).
+* Implementado el endpoint `POST /api/auth/login` que valida contraseñas y usernames consultando directamente la tabla `usuarios` en Supabase.
+* Incluye fallback automático a mock de usuarios de prueba si la base de datos Supabase estuviera caída temporalmente.
+
+### 5. Enrutamiento Limpio (`vercel.json`)
+* Ubicación: [vercel.json](file:///c:/Lavadero/vercel.json).
+* Habilitado `"cleanUrls": true` para que los usuarios puedan navegar a `/`, `/login` y `/dashboard` sin extensiones `.html`.
+
+---
+
+## 🐙 Repositorio Actualizado
+Todos los cambios ya fueron empujados y publicados en tu repositorio remoto en GitHub:
+* [enzogirardi84/Lavadero-](https://github.com/enzogirardi84/Lavadero-)
+* Esto disparó la compilación de Vercel en caliente, actualizando tu sitio público al instante.
