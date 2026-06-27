@@ -1,63 +1,45 @@
-# Plan de Implementación: Integración con Supabase y Publicación en GitHub
+# Plan de Implementación: Despliegue Serverless de Python en Vercel
 
-En esta fase, configuraremos la conexión de datos de todo el ecosistema (Java y Python) para utilizar la base de datos PostgreSQL hospedada en **Supabase** y prepararemos el repositorio local de **Git** para subir el código a **GitHub**.
-
----
-
-## 1. Conexión a la Base de Datos de Supabase
-
-El ID de proyecto de tu base de datos Supabase es `sqczmyaoqplrmrgyczjy`. Por lo tanto:
-* **Host de PostgreSQL:** `db.sqczmyaoqplrmrgyczjy.supabase.co`
-* **Puerto:** `5432`
-* **Base de Datos:** `postgres`
-* **Usuario:** `postgres`
-
-### Cambios de Configuración:
-1. **Java (`application.yml`):** Cambiaremos el datasource URL a `jdbc:postgresql://db.sqczmyaoqplrmrgyczjy.supabase.co:5432/postgres`. Usaremos una variable de entorno `${SUPABASE_DB_PASSWORD}` para la contraseña del usuario postgres.
-2. **Python (`DB_URL`):** Modificaremos la cadena por defecto a `postgresql://postgres:{PASSWORD}@db.sqczmyaoqplrmrgyczjy.supabase.co:5432/postgres` en todos los archivos de analítica y scripts (`main.py`, `customer_loyalty.py`, `feedback_nps_analyzer.py`).
+Dado que has conectado el repositorio a **Vercel**, configuraremos el proyecto para que el microservicio de analítica de Python (FastAPI, Pandas) se despliegue automáticamente en la nube como funciones serverless cada vez que realices un `git push`.
 
 ---
 
-## 2. Publicación en GitHub
+## 1. Arquitectura de Despliegue en Vercel
 
-Inicializaremos Git localmente en `c:\Lavadero`, añadiremos todos los archivos y configuraremos el remote a `https://github.com/enzogirardi84/Lavadero-`.
+```mermaid
+graph TD
+    User[Usuario / Navegador] -->|1. Abre Dashboard| JavaApp[Backend Java Local]
+    JavaApp -->|2. Datos de Calificaciones y Clientes| Supabase[(Supabase PostgreSQL)]
+    JavaApp -->|3. Analítica /segmentacion y /nps| VercelAPI[Vercel Serverless Python]
+    VercelAPI -->|4. Consulta SQL y Pandas| Supabase
+```
+
+### A. Ejecución de FastAPI en Vercel
+Vercel requiere un archivo de entrada dentro de una carpeta `api/` en la raíz (ej. `api/index.py`) que exponga la instancia de ASGI `app`.
+Dado que la carpeta contenedora tiene un guion en su nombre (`automation-python`), no se puede importar directamente usando sintaxis estándar de Python. Para solucionarlo de forma elegante, añadiremos la ruta al `sys.path` del entorno de ejecución de Vercel.
+
+### B. Configuración de Enrutamiento (`vercel.json`)
+Crearemos el archivo `vercel.json` en la raíz del proyecto para definir que todas las llamadas HTTP dirigidas a `/api/` sean procesadas por la función serverless de Python.
 
 ---
 
 ## Proposed Changes
 
-### [Componente: Configuración de Base de Datos (Supabase)]
-*Redirección de la persistencia de datos a la nube.*
+### [Componente: Orquestación Vercel]
+*Configuraciones para compilar y desplegar en la nube.*
 
-#### [MODIFY] [application.yml](file:///c:/Lavadero/backend-java/src/main/resources/application.yml)
-- Actualizar la URL de base de datos a Supabase:
-  `jdbc:postgresql://db.sqczmyaoqplrmrgyczjy.supabase.co:5432/postgres`
-- Cambiar la contraseña por defecto a `${SUPABASE_DB_PASSWORD:}` para que el usuario la ingrese de forma segura.
+#### [NEW] [vercel.json](file:///c:/Lavadero/vercel.json)
+- Archivo de enrutamiento y definición de builds para el runtime `@vercel/python`.
 
-#### [MODIFY] [main.py](file:///c:/Lavadero/automation-python/api/main.py)
-- Actualizar `DB_URL` por defecto con la estructura de Supabase PostgreSQL.
+#### [NEW] [requirements.txt](file:///c:/Lavadero/requirements.txt)
+- Copiar las dependencias de Python a la raíz para que el build-step de Vercel instale FastAPI, Pandas y SQLAlchemy de manera automática.
 
-#### [MODIFY] [customer_loyalty.py](file:///c:/Lavadero/automation-python/scripts/customer_loyalty.py)
-- Actualizar `DB_URL` por defecto con la estructura de Supabase PostgreSQL.
-
-#### [MODIFY] [feedback_nps_analyzer.py](file:///c:/Lavadero/automation-python/scripts/feedback_nps_analyzer.py)
-- Actualizar `DB_URL` por defecto con la estructura de Supabase PostgreSQL.
+#### [NEW] [index.py](file:///c:/Lavadero/api/index.py)
+- Script de entrada que carga e inicializa la aplicación FastAPI agregando la ruta al módulo de analíticas.
 
 ---
 
-### [Componente: Control de Versiones Git]
-*Preparación y enlace del repositorio.*
+## 2. Plan de Verificación y Lanzamiento
 
-#### [NEW] [.gitignore](file:///c:/Lavadero/.gitignore)
-- Configuración para excluir archivos generados, entornos virtuales (`.venv`), binarios compilados de Java (`target/`), claves y configuraciones temporales de IDEs (`.idea`, `.vscode`).
-
----
-
-## 3. Plan de Verificación y Empuje
-
-### Inicialización y Commit
-1. Ejecutar `git init` en el workspace `c:\Lavadero`.
-2. Crear el archivo `.gitignore` para no subir basura.
-3. Hacer `git add .` y `git commit -m "Initial commit - Car Wash Hybrid System"`.
-4. Añadir el origen remoto: `git remote add origin https://github.com/enzogirardi84/Lavadero-`.
-5. Mostrar los comandos necesarios para realizar el `git push -u origin main`.
+1. **Commit y Push:** Subir los cambios a GitHub para que Vercel inicie el build automático.
+2. **Validación:** Probar que la URL asignada por Vercel responda correctamente al hacer GET a `https://[tu-proyecto].vercel.app/api/nps`.
