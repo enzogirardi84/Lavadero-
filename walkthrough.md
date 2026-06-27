@@ -1,42 +1,30 @@
-# Walkthrough de la Implementación: Satisfacción del Cliente (NPS)
+# Walkthrough: Integración de Supabase y Publicación en GitHub
 
-Hemos implementado un sistema integrado para **medir la satisfacción de los clientes (NPS)** utilizando la combinación híbrida de Java y Python.
-
----
-
-## 📈 Componentes de Satisfacción e NPS Creados
-
-### 1. Base de Datos PostgreSQL
-* Modificado [schema.sql](file:///c:/Lavadero/database/schema.sql) para crear la tabla `feedback_clientes` (id, cliente_id, puntuacion de 1 a 5 estrellas, comentario, fecha) y añadir valoraciones de prueba para el cálculo inicial.
-
-### 2. Backend en Java (JPA + REST)
-* [FeedbackCliente.java](file:///c:/Lavadero/backend-java/src/main/java/com/lavadero/model/FeedbackCliente.java): Mapea la tabla de satisfacción.
-* [FeedbackClienteRepository.java](file:///c:/Lavadero/backend-java/src/main/java/com/lavadero/repository/FeedbackClienteRepository.java): Operaciones de base de datos.
-* [POSController.java](file:///c:/Lavadero/backend-java/src/main/java/com/lavadero/controller/POSController.java): Añadido el endpoint `POST /api/pos/feedback` para registrar calificaciones directamente tras realizar el cobro.
-
-### 3. Analítica y APIs en Python
-* [feedback_nps_analyzer.py](file:///c:/Lavadero/automation-python/scripts/feedback_nps_analyzer.py): Script que clasifica las valoraciones en Promotores (5★), Pasivos (4★) y Detractores (1-3★), calcula el NPS consolidado (`% Promotores - % Detractores`) y entrega el resultado estructurado en JSON.
-* [main.py](file:///c:/Lavadero/automation-python/api/main.py): Añadido el endpoint `/nps` a FastAPI para servir las métricas en tiempo real usando Pandas, con fallback a simulación local si PostgreSQL no está conectado.
-
-### 4. Controlador de la UI y Panel Dashboard
-* En [DashboardController.java](file:///c:/Lavadero/backend-java/src/main/java/com/lavadero/controller/DashboardController.java), se consume la API `/nps` para cargar las métricas en el modelo (con fallback seguro en modo offline).
-* En [dashboard.html](file:///c:/Lavadero/backend-java/src/main/resources/templates/dashboard.html), se integró el widget **"⭐ Satisfacción del Cliente (NPS)"** en la columna de marketing:
-  * Muestra el puntaje NPS destacado (ej. `+75 NPS`) y el nivel de satisfacción general.
-  * Muestra la distribución de Promotores, Pasivos y Detractores.
-  * Incorpora un formulario AJAX de valoración rápida para registrar encuestas al instante sin recargar la página.
+Hemos migrado las conexiones del ecosistema del Lavadero a la base de datos PostgreSQL hospedada en la nube con **Supabase**, e inicializado el control de versiones local con **Git** para subir el código a **GitHub**.
 
 ---
 
-## 🧪 Pruebas y Validación Realizadas
+## ☁️ Transición a Supabase (PostgreSQL en la Nube)
 
-* El script de analítica se ejecutó con éxito en modo de simulación y arrojó el resultado JSON correcto:
-  ```json
-  {
-    "status": "BUENO / ACEPTABLE",
-    "nps": 25.0,
-    "total_respuestas": 8,
-    "promotores": 4,
-    "pasivos": 2,
-    "detractores": 2
-  }
-  ```
+Redirigimos todas las conexiones de base de datos del backend Java y analíticas en Python hacia la instancia de Supabase del proyecto `sqczmyaoqplrmrgyczjy`:
+
+### 1. Backend Java (Spring Boot)
+* Modificado [application.yml](file:///c:/Lavadero/backend-java/src/main/resources/application.yml):
+  * URL JDBC: `jdbc:postgresql://db.sqczmyaoqplrmrgyczjy.supabase.co:5432/postgres`
+  * Contraseña: Vinculada de forma segura a la variable de entorno `${SUPABASE_DB_PASSWORD:}`.
+
+### 2. Microservicio y Scripts de Python
+* Modificados [main.py](file:///c:/Lavadero/automation-python/api/main.py), [customer_loyalty.py](file:///c:/Lavadero/automation-python/scripts/customer_loyalty.py) y [feedback_nps_analyzer.py](file:///c:/Lavadero/automation-python/scripts/feedback_nps_analyzer.py):
+  * URL SQLALchemy / Psycopg2: Apunta a `db.sqczmyaoqplrmrgyczjy.supabase.co` interpolando de manera dinámica el valor de la variable de entorno `SUPABASE_DB_PASSWORD`.
+
+---
+
+## 🐙 Control de Versiones (Git & GitHub)
+
+1. **Ignorado de Archivos Basura:**
+   * Creado el archivo [.gitignore](file:///c:/Lavadero/.gitignore) con reglas de exclusión para Maven (`target/`), Python (`.venv`, `__pycache__`), IDEs (`.idea`, `.vscode`) y secretos.
+2. **Repositorio Local Inicializado:**
+   * Ejecutado `git init`, `git add .`, y creado el primer commit con el mensaje `"Initial commit - Car Wash Hybrid System with Supabase integration"`.
+   * Renombrada la rama por defecto a `main`.
+3. **Control Remoto Configurado:**
+   * Enlazado a tu repositorio remoto en GitHub: `https://github.com/enzogirardi84/Lavadero-`.
