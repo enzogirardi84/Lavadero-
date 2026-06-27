@@ -458,6 +458,60 @@ def get_mock_dashboard_data(err_msg: str):
         ]
     }
 
+@app.post("/api/auth/login")
+def login(payload: dict):
+    username = payload.get("username")
+    password = payload.get("password")
+    
+    if not username or not password:
+        return {"status": "error", "message": "Por favor, ingresa el usuario y contraseña."}
+        
+    try:
+        # Consultar la tabla usuarios de Supabase
+        user = execute_query(
+            "SELECT * FROM usuarios WHERE (username = :u OR mail = :u) AND (password = :p OR contrasena = :p) LIMIT 1;",
+            {"u": username, "p": password},
+            fetch_one=True
+        )
+        
+        if user:
+            if not user.get("activo", True):
+                return {"status": "error", "message": "El usuario se encuentra inactivo."}
+            return {
+                "status": "success",
+                "user": {
+                    "id": user.get("id_usuario"),
+                    "nombre": user.get("nombre"),
+                    "username": user.get("username"),
+                    "rol": user.get("rol")
+                }
+            }
+        else:
+            return {"status": "error", "message": "Usuario o contraseña incorrectos."}
+    except Exception as e:
+        print(f"[AUTH-WARNING] DB Error ({e}). Usando autenticación mock.")
+        # Fallback a mock de usuarios
+        mock_users = [
+            {"id_usuario": 1, "nombre": "Super Admin", "rol": "superadmin", "username": "super@admi.com", "password": "superadmi2026/"},
+            {"id_usuario": 2, "nombre": "Administrador", "rol": "administrador", "username": "admi@patron.com", "password": "Elpatron2026/"},
+            {"id_usuario": 4, "nombre": "Enzo", "rol": "mozo", "username": "enzo", "password": "1234"},
+            {"id_usuario": 9, "nombre": "Admin", "rol": "superadmin", "username": "admin", "password": "1998"}
+        ]
+        found = next((u for u in mock_users if (u["username"] == username and u["password"] == password)), None)
+        if found:
+            return {
+                "status": "success",
+                "user": {
+                    "id": found["id_usuario"],
+                    "nombre": found["nombre"],
+                    "username": found["username"],
+                    "rol": found["rol"]
+                }
+            }
+        else:
+            return {"status": "error", "message": "Usuario o contraseña incorrectos (modo simulación)."}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
